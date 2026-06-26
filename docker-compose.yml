@@ -1,0 +1,126 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: caching-gateway
+    ports:
+      - "8080:80"
+    depends_on:
+      origin-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      edge-jakarta:
+        condition: service_healthy
+      edge-singapore:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  origin-service:
+    build:
+      context: ./origin-service
+    container_name: caching-origin
+    environment:
+      PORT: "3000"
+      REDIS_URL: "redis://redis:6379"
+      EDGE_JAKARTA_URL: "http://edge-jakarta:3000"
+      EDGE_SINGAPORE_URL: "http://edge-singapore:3000"
+      DATABASE_DELAY_MS: "240"
+      ORIGIN_ASSET_DELAY_MS: "340"
+      LOCAL_CACHE_TTL_MS: "12000"
+      LOCAL_CACHE_MAX_ENTRIES: "4"
+      REDIS_CACHE_TTL_SEC: "18"
+      WRITE_BACK_FLUSH_MS: "2200"
+      REFRESH_AHEAD_WINDOW_MS: "1600"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  edge-jakarta:
+    build:
+      context: ./edge-jakarta
+    container_name: caching-edge-jakarta
+    environment:
+      PORT: "3000"
+      EDGE_REGION: "jakarta"
+      EDGE_LABEL: "Jakarta POP"
+      EDGE_LATENCY_MS: "22"
+      EDGE_TTL_MS: "20000"
+      ORIGIN_BASE_URL: "http://origin-service:3000"
+    depends_on:
+      origin-service:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  edge-singapore:
+    build:
+      context: ./edge-singapore
+    container_name: caching-edge-singapore
+    environment:
+      PORT: "3000"
+      EDGE_REGION: "singapore"
+      EDGE_LABEL: "Singapore POP"
+      EDGE_LATENCY_MS: "55"
+      EDGE_TTL_MS: "20000"
+      ORIGIN_BASE_URL: "http://origin-service:3000"
+    depends_on:
+      origin-service:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: caching-redis
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "64mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

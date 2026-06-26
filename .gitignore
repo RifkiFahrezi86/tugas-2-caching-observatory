@@ -1,0 +1,10 @@
+dashboard/node_modules/
+dashboard/dist/
+origin-service/node_modules/
+edge-jakarta/node_modules/
+edge-singapore/node_modules/
+
+.DS_Store
+Thumbs.db
+computer-systems-unpacked.zip
+ppt_extract/
